@@ -1,0 +1,178 @@
+# Optional proxy. Set use_proxy to true or false.
+proxy:
+  use_proxy: true
+  proxy_list:
+    - HTTP_PROXY=
+    - HTTPS_PROXY=
+    - NO_PROXY=
+
+
+# ===================== AUTO UPDATE =====================================
+# select whether latest llama.cpp, openvino, Vulkan SDK, and openvino.genai
+# artifacts/commits should be checked and updated before each run.
+# If false, existing local files/repos are used and only missing artifacts are built.
+auto_update: false
+
+
+# ===================== RUN MATRIX ======================================
+# Toggle devices and frameworks on/off per run.
+run_matrix:
+  devices:
+    cpu: true
+    gpu: true
+    npu: true
+
+  cpu:
+    llamacpp_ggml_cpu: true
+    llamacpp_ov_cpu: true
+    ov_genai_ir_cpu: true
+  gpu:
+    llamacpp_vulkan_gpu: true
+    llamacpp_ov_gpu: true
+    ov_genai_ir_gpu: true
+  npu:
+    llamacpp_ov_npu: true
+    ov_genai_ir_npu: true
+
+
+# ========================= DIRECTORIES =================================
+build_dir: ./BUILD
+dependency_dir: ./DEPENDENCIES
+gguf_dir: ./MODELS/gguf
+ir_dir: ./MODELS/ir
+results_dir: ./RESULTS
+logs_dir: ./logs
+
+
+# ================= OPENVINO CONFIGURATION FOR LLAMACPP (BUILD MODE)=================
+openvino:
+  # version: default/latest
+  version: default
+  default_url: https://storage.openvinotoolkit.org/repositories/openvino/packages/2026.1/windows/openvino_toolkit_windows_2026.1.0.21367.63e31528c62_x86_64.zip
+
+
+# ======================== LLAMACPP CONFIGURATION =======================
+llamacpp:
+
+  # select llama.cpp source build mode: build | release
+  # release mode downloads latest win-x64 CPU/Vulkan/OpenVINO artifacts from ggml-org/llama.cpp releases
+  use: build
+
+  # Required MSVC environment batch file path.
+  # Download_link: https://aka.ms/vs/17/release/vs_BuildTools.exe
+  # Example:
+  # msvc_env_bat_path: "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/Tools/VsDevCmd.bat"
+  msvc_env_bat_path: "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/Tools/VsDevCmd.bat"
+
+  # Required Vulkan SDK base install path.
+  # Script checks latest version online and ensures this path contains <version>/...
+  # Download_link: https://vulkan.lunarg.com/sdk/home#windows
+  # Example:
+  # vulkan_sdk_path: "C:/VulkanSDK/1.4.350.0"
+  vulkan_sdk_path: "C:/VulkanSDK/1.4.350.0"
+
+
+  quantizations: [Q4_0, Q4_K_M]
+  
+  bench:
+    # Number of repetitions for each benchmark test (applies to CPU/GPU/NPU) (-r)
+    repetitions: 1
+    # llama-bench prompt phase tokens (CPU/GPU) (-p)
+    pp_tokens: 128
+    # llama-bench token generation tokens (CPU/GPU) (-n)
+    tg_tokens: 32
+    # GPU computational depth (-d)
+    gpu_depth: 0
+    # Layers to offload from system RAM to GPU VRAM (-ngl)
+    n_gpu_layers: 99
+    # llama-bench prompt phase tokens (NPU) (-p)
+    npu_pp_tokens: 64
+    # llama-bench token generation tokens (NPU) (-n)
+    npu_tg_tokens: 16
+  
+  perplexity:
+    # Context size for llama-perplexity (-c)
+    ctx: 512
+    # Batch size for perplexity calculations (-b)
+    batch: 512
+  
+  cli_smoke:
+    # Non-interactive prompt used by llama-cli smoke test.
+    prompt: "Reply with exactly: SMOKE_OK"
+    # If set, llama-cli output must contain this substring (case-insensitive).
+    expect_text: "SMOKE_OK"
+    # Also require at least some generated text in output.
+    require_nonempty: true
+  
+  runtime_env:
+    cpu:
+      GGML_OPENVINO_DEVICE: CPU
+      GGML_OPENVINO_STATEFUL_EXECUTION: "1"
+      # GGML_OPENVINO_CACHE_DIR: /tmp/ov_cpu_cache
+    gpu:
+      GGML_OPENVINO_DEVICE: GPU
+      GGML_OPENVINO_STATEFUL_EXECUTION: "1"
+      #GGML_OPENVINO_CACHE_DIR: /tmp/ov_gpu_cache
+    npu:
+      GGML_OPENVINO_DEVICE: NPU
+      #GGML_OPENVINO_CACHE_DIR: /tmp/ov_npu_cache
+
+
+# =================== GENAI BENCHMARK.PY CONFIGURATION ==================
+genai:
+  benchmark:
+    # "Prompt" size for the inference test (-ic)
+    initial_content_length: 128
+    # Number of benchmark runs (-n)
+    iterations: 1
+    # Input prompt file for inference (-pf)
+    prompt_file: ./prompt.jsonl
+    # Input prompt, e.g. "Hi! List first 10 primes.". Takes precedence over prompt_file if set (-p).
+    prompt: "Who are you?"
+    # Batch size for GPU runs (-mc)
+    max_context: 1
+
+
+# ========================= MODELS CONFIGURATION =========================
+# models can be added manually to working directory path: ./STORE/models/...
+# remove the below web links and hf IDs if model download/quantization not needed
+gguf_models:
+  Q4_0:
+    - https://huggingface.co/unsloth/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_0.gguf
+    - https://huggingface.co/QuantFactory/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct.Q4_0.gguf
+  Q4_K_M:
+    - https://huggingface.co/unsloth/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf
+    - https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+
+
+ir_models:
+  # Optional per-device export flags for: optimum-cli export openvino
+  # These control GsPU/NPU specific CLI quantization parameters.
+  # Leave respective value empty if any flag is not needed.
+  params:
+    gpu:
+      weight_format: int4
+      group_size: 32
+      ratio: 1.0
+      sym:  
+      trust_remote_code: true
+    npu:
+      weight_format: int4
+      group_size: -1
+      ratio: 1.0
+      sym: true
+      trust_remote_code: true
+
+  # Gated models require HF token, to fix those:
+  # 1. Accept the license on HuggingFace on model page
+  # 2. Generate an HF token: https://huggingface.co/settings/tokens
+  # 3. Login before running the script using "hf auth login"
+  # Or set the token as an environment variable:
+  # $ export HF_TOKEN=your_token_here
+  # $ bash ovir_downloader.sh
+  # Or set the token in ir_models.hf_token field within double quotes e.g. "hf_yourtokenhere"
+  hf_token: ""
+  models:
+    - meta-llama/Llama-3.2-1B-Instruct
+    - meta-llama/Llama-3.1-8B-Instruct
+    - deepseek-ai/DeepSeek-R1-Distill-Llama-8B
