@@ -14,6 +14,35 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 CONFIG_FILE = PROJECT_ROOT / "config.yaml"
 
 
+def _proxy_env_from_raw_config(config_file: Path) -> dict[str, str]:
+    if not config_file.is_file():
+        return {}
+
+    text = config_file.read_text(encoding="utf-8", errors="ignore")
+    if "use_proxy" not in text:
+        return {}
+
+    env: dict[str, str] = {}
+    enabled = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.lower().startswith("use_proxy:"):
+            enabled = line.split(":", 1)[1].strip().lower() in {"true", "1", "yes", "y", "on"}
+        if line.startswith("-") and "=" in line:
+            entry = line[1:].strip()
+            if entry.lower().startswith("export "):
+                entry = entry[7:].strip()
+            key, val = entry.split("=", 1)
+            key = key.strip()
+            val = val.strip()
+            if key:
+                env[key] = val
+
+    return env if enabled else {}
+
+
 def _ensure_pkg(module_name: str, package_name: str) -> None:
     try:
         __import__(module_name)
@@ -21,13 +50,37 @@ def _ensure_pkg(module_name: str, package_name: str) -> None:
     except Exception:
         pass
 
+    install_env = dict(os.environ)
+    install_env.update(_proxy_env_from_raw_config(CONFIG_FILE))
+
     cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", package_name]
-    rc = subprocess.run(cmd).returncode
+    proxy = (
+        install_env.get("HTTPS_PROXY")
+        or install_env.get("https_proxy")
+        or install_env.get("HTTP_PROXY")
+        or install_env.get("http_proxy")
+    )
+    if proxy:
+        cmd += ["--proxy", proxy]
+
+    rc = subprocess.run(cmd, env=install_env).returncode
     if rc != 0:
-        raise RuntimeError(f"Failed to install required package: {package_name}")
+        retry_cmd = [
+            *cmd,
+            "--trusted-host",
+            "pypi.org",
+            "--trusted-host",
+            "files.pythonhosted.org",
+            "--trusted-host",
+            "pypi.python.org",
+        ]
+        rc = subprocess.run(retry_cmd, env=install_env).returncode
+        if rc != 0:
+            raise RuntimeError(f"Failed to install required package: {package_name}")
 
 
 _ensure_pkg("yaml", "PyYAML")
+_ensure_pkg("requests", "requests")
 import yaml  # noqa: E402
 
 
