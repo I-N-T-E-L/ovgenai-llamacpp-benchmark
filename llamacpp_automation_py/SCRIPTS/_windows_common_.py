@@ -7,8 +7,10 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any
 
 _PROJECT_GUESS = Path(__file__).resolve().parent.parent
@@ -164,18 +166,52 @@ def run_cmd(
 
 def download_file(url: str, dest: Path, env: dict[str, str] | None = None) -> None:
     ensure_dir(dest.parent)
-    proxies = None
+    host = (urlparse(url).hostname or "").lower()
+
+    proxy_map: dict[str, str] | None = None
     if env:
-        proxies = {
-            "http": env.get("HTTP_PROXY") or env.get("http_proxy"),
-            "https": env.get("HTTPS_PROXY") or env.get("https_proxy"),
+        proxy_map = {
+            "http": env.get("HTTP_PROXY") or env.get("http_proxy") or "",
+            "https": env.get("HTTPS_PROXY") or env.get("https_proxy") or "",
         }
-    with requests.get(url, stream=True, timeout=120, proxies=proxies) as r:
-        r.raise_for_status()
-        with dest.open("wb") as fh:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    fh.write(chunk)
+        proxy_map = {k: v for k, v in proxy_map.items() if v}
+        if not proxy_map:
+            proxy_map = None
+
+    hf_like_host = host.endswith("huggingface.co") or host.endswith("hf.co")
+    attempts: list[tuple[str, dict[str, str] | None, bool]] = [("proxy/default", proxy_map, True)]
+    if proxy_map and hf_like_host:
+        # HF downloads may redirect to CAS/Xet endpoints that fail through some proxies.
+        # Retry once with proxy disabled so direct route can succeed when available.
+        attempts.append(("direct", {}, False))
+
+    last_exc: Exception | None = None
+    for label, proxies, trust_env in attempts:
+        for idx in range(1, 4):
+            try:
+                with requests.Session() as session:
+                    session.trust_env = trust_env
+                    with session.get(url, stream=True, timeout=120, proxies=proxies) as r:
+                        r.raise_for_status()
+                        with dest.open("wb") as fh:
+                            for chunk in r.iter_content(chunk_size=1024 * 1024):
+                                if chunk:
+                                    fh.write(chunk)
+                return
+            except requests.exceptions.RequestException as exc:
+                last_exc = exc
+                if idx < 3:
+                    time.sleep(1.5 * idx)
+
+        # Remove partial file before moving to next attempt mode.
+        if dest.exists():
+            dest.unlink(missing_ok=True)
+        if last_exc is not None:
+            print(f"Warning: download attempt ({label}) failed for {url}: {last_exc}")
+
+    if last_exc is not None:
+        raise RuntimeError(f"Failed to download {url}: {last_exc}") from last_exc
+    raise RuntimeError(f"Failed to download {url}")
 
 
 def _extract_zip(src: Path, dst: Path) -> None:

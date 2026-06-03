@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import py_compile
 import shutil
 import subprocess
 import sys
@@ -47,6 +48,28 @@ def _latest_csv(results_dir: Path, prefix: str) -> Path | None:
     return matches[0] if matches else None
 
 
+def _compile_wrapper_scripts() -> int:
+    # Wrapper scripts embed large platform-specific implementation strings.
+    # A syntax compile pass catches quote-escaping mistakes before long benchmark runs.
+    scripts = sorted(SCRIPTS_DIR.glob("*.py"))
+    failures: list[tuple[Path, str]] = []
+    for script in scripts:
+        try:
+            py_compile.compile(str(script), doraise=True)
+        except py_compile.PyCompileError as exc:
+            failures.append((script, str(exc)))
+
+    if failures:
+        print("Error: Syntax validation failed for script wrappers:")
+        for script, err in failures:
+            print(f"- {script}")
+            print(f"  {err}")
+        return 1
+
+    print(f"Wrapper syntax check passed ({len(scripts)} files).")
+    return 0
+
+
 def _run_step(script_name: str, label: str) -> None:
     script_path = SCRIPTS_DIR / script_name
     if not script_path.is_file():
@@ -68,6 +91,10 @@ def _preflight_check() -> int:
     if not CONFIG_FILE.is_file():
         print(f"Error: Missing config file: {CONFIG_FILE}")
         return 1
+
+    compile_rc = _compile_wrapper_scripts()
+    if compile_rc != 0:
+        return compile_rc
 
     cfg = load_config()
     results_raw = cfg.get("results_dir")
@@ -106,6 +133,10 @@ def main() -> int:
 
     if args.check:
         return _preflight_check()
+
+    compile_rc = _compile_wrapper_scripts()
+    if compile_rc != 0:
+        return compile_rc
 
     cfg = load_config()
     results_raw = cfg.get("results_dir")
