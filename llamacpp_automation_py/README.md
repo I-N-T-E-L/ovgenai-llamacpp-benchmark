@@ -55,9 +55,18 @@ Download links:
 - Visual Studio Build Tools (installer): https://aka.ms/vs/17/release/vs_BuildTools.exe
 - Vulkan SDK for Windows: https://vulkan.lunarg.com/sdk/home#windows
 
-Required config entries for Windows build flow:
-- `llamacpp.msvc_env_bat_path`
-- `llamacpp.vulkan_sdk_path` (if Vulkan enabled)
+After installing, update `config.yaml` in this repository (under the `llamacpp:` section):
+
+- If you installed Visual Studio Build Tools, set the `msvc_env_bat_path` value to your local `VsDevCmd.bat` path.
+- If you installed Vulkan SDK and Vulkan runs are enabled, set `vulkan_sdk_path` to your local Vulkan SDK root folder.
+
+Example `config.yaml` edit:
+
+```yaml
+llamacpp:
+  msvc_env_bat_path: "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/Tools/VsDevCmd.bat"
+  vulkan_sdk_path: "C:/VulkanSDK/1.4.350.0"
+```
 
 ## Linux
 
